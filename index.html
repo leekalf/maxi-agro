@@ -4979,7 +4979,8 @@ function startRealtimeSync() {
 
       const REMOTE_FIELDS = ['inventaires','factures','especes','aliments','demandes','clients','mouvements','audit','prixPersos'];
       REMOTE_FIELDS.forEach(k => { if (remote[k] !== undefined) DB[k] = remote[k]; });
-      if (!DB.users || !DB.users.length) DB.users = remote.users || DB.users;
+      // Sync users : toujours prendre la version Firebase si elle existe (non vide)
+      if (remote.users && remote.users.length) DB.users = remote.users;
       sanitizeDB();
       localStorage.setItem(DB_KEY, JSON.stringify(DB));
 
@@ -5043,7 +5044,7 @@ function _doFirebasePush() {
   _fbPushToken   = token;
   _fbPushPending = false;   // push en cours → protection levée
 
-  const SYNC_FIELDS = ['inventaires','factures','especes','aliments','demandes','clients','mouvements','audit','prixPersos'];
+  const SYNC_FIELDS = ['inventaires','factures','especes','aliments','demandes','clients','mouvements','audit','prixPersos','users'];
   const data = { _v: token }; // token embarqué pour détection écho
   SYNC_FIELDS.forEach(k => { if (DB[k] !== undefined) data[k] = DB[k]; });
 
