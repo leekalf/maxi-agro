@@ -1,5 +1,5 @@
 // MAXI-AGRO Service Worker — Mode hors-ligne
-const CACHE = 'maxiagro-v21'; // ← Changer ce numéro à chaque mise à jour
+const CACHE = 'maxiagro-v22'; // ← Changer ce numéro à chaque mise à jour
 const ASSETS = [
   './',
   './index.html',

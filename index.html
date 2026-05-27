@@ -3333,66 +3333,124 @@ function reprintFacture(num) {
 
 function generatePDF(facture) {
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const W = 210, ML = 14, MR = 196;
 
-  // Header
-  doc.setFontSize(20); doc.setTextColor(192, 57, 43); doc.setFont(undefined, 'bold');
-  doc.text('LA TERMITIÈRE', 14, 20);
-  doc.setFontSize(9); doc.setTextColor(127, 140, 141); doc.setFont(undefined, 'italic');
-  doc.text('Toujours dans l\'action', 14, 26);
-  doc.setFontSize(8); doc.setTextColor(80,80,80); doc.setFont(undefined, 'normal');
-  doc.text('LOGISTIQUE · QUINCAILLERIE · BTP · ÉLEVAGE · AGRO-BUSINESS', 14, 32);
-  doc.text('AGOE DALIKO · Tél : 00228 96 09 49 49 · latermitiere2021@gmail.com', 14, 37);
-  doc.text('N° CFE : 06143PM2021/2024 · N° RCCM : TG-LFW-01-2024-M-10838', 14, 42);
+  // ── Bande d'en-tête sobre (gris très clair) ──────────────────
+  doc.setFillColor(245, 245, 245);
+  doc.rect(0, 0, W, 42, 'F');
 
-  // Titre facture
-  doc.setFillColor(192, 57, 43);
-  doc.rect(14, 50, 182, 10, 'F');
-  doc.setTextColor(255,255,255); doc.setFontSize(14); doc.setFont(undefined, 'bold');
-  doc.text('FACTURE  ' + facture.num, 105, 57, { align: 'center' });
+  // Colonne gauche : identité société
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14); doc.setTextColor(30, 30, 30);
+  doc.text('LA TERMITIÈRE', ML, 12);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8); doc.setTextColor(90, 90, 90);
+  doc.text('LOGISTIQUE · QUINCAILLERIE · BTP · ÉLEVAGE · AGRO-BUSINESS', ML, 18);
+  doc.text('AGOE DALIKO, Lomé — Tél : 00228 96 09 49 49', ML, 23);
+  doc.text('latermitiere2021@gmail.com', ML, 28);
+  doc.text('N° CFE : 06143PM2021/2024 · N° RCCM : TG-LFW-01-2024-M-10838', ML, 33);
 
-  // Infos
-  doc.setTextColor(0,0,0); doc.setFontSize(10); doc.setFont(undefined, 'normal');
-  doc.text('Date : ' + facture.date, 14, 70);
-  doc.text('Agent : ' + facture.agent, 14, 76);
-  doc.setFont(undefined, 'bold');
-  doc.text('CLIENT', 120, 70);
-  doc.setFont(undefined, 'normal');
-  doc.text(facture.client.nom, 120, 76);
-  if (facture.client.tel) doc.text('Tél: ' + facture.client.tel, 120, 81);
-  if (facture.client.adresse) doc.text('Adr: ' + facture.client.adresse, 120, 86);
-  if (facture.client.nif) doc.text('NIF: ' + facture.client.nif, 120, 91);
+  // Colonne droite : N° et date facture
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(18); doc.setTextColor(30, 30, 30);
+  doc.text('FACTURE', MR, 12, { align: 'right' });
+  doc.setFontSize(11); doc.setTextColor(22, 163, 74);
+  doc.text(facture.num, MR, 20, { align: 'right' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9); doc.setTextColor(90, 90, 90);
+  doc.text('Date : ' + facture.date, MR, 27, { align: 'right' });
+  doc.text('Émis par : ' + facture.agent, MR, 33, { align: 'right' });
 
-  // Lignes
+  // Ligne de séparation
+  doc.setDrawColor(200, 200, 200);
+  doc.setLineWidth(0.3);
+  doc.line(ML, 44, MR, 44);
+
+  // ── Bloc CLIENT ──────────────────────────────────────────────
+  doc.setFontSize(8); doc.setTextColor(100, 100, 100); doc.setFont('helvetica', 'normal');
+  doc.text('FACTURÉ À', 120, 52);
+  doc.setDrawColor(180, 180, 180); doc.rect(118, 54, 78, 30);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(30, 30, 30);
+  doc.text(facture.client.nom, 122, 61);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(60, 60, 60);
+  let cy = 67;
+  if (facture.client.tel)     { doc.text('Tél : ' + facture.client.tel, 122, cy);     cy += 5; }
+  if (facture.client.adresse) { doc.text('Adresse : ' + facture.client.adresse, 122, cy); cy += 5; }
+  if (facture.client.nif)     { doc.text('NIF : ' + facture.client.nif, 122, cy); }
+
+  // ── Tableau des articles ──────────────────────────────────────
   doc.autoTable({
-    startY: 100,
-    head: [['Désignation', 'Qté', 'Prix unitaire', 'Total']],
+    startY: 90,
+    head: [['Désignation', 'Qté', 'Prix unitaire', 'Montant']],
     body: facture.lignes.map(l => [
       l.nom,
-      l.qty,
+      String(l.qty),
       formatMoney(l.prix),
       formatMoney(l.total)
     ]),
-    foot: [
-      ['', '', 'Total HT', formatMoney(facture.totalHT)],
-      ['', '', 'Remise', '- ' + formatMoney(facture.remise)],
-      ['', '', 'TVA (' + facture.tvaPct + '%)', formatMoney(facture.tva)],
-      ['', '', 'TOTAL TTC', formatMoney(facture.totalTTC)]
-    ],
-    headStyles: { fillColor: [44, 62, 80] },
-    footStyles: { fillColor: [236, 240, 241], textColor: [0,0,0], fontStyle: 'bold' },
-    styles: { fontSize: 9 },
-    columnStyles: { 1: { halign: 'center' }, 2: { halign: 'right' }, 3: { halign: 'right' } }
+    headStyles: {
+      fillColor: [30, 30, 30], textColor: [255, 255, 255],
+      fontStyle: 'bold', fontSize: 9, halign: 'left'
+    },
+    bodyStyles: { fontSize: 9, textColor: [40, 40, 40] },
+    alternateRowStyles: { fillColor: [250, 250, 250] },
+    styles: { lineColor: [220, 220, 220], lineWidth: 0.2, cellPadding: 3 },
+    columnStyles: {
+      0: { cellWidth: 85 },
+      1: { halign: 'center', cellWidth: 20 },
+      2: { halign: 'right', cellWidth: 40 },
+      3: { halign: 'right', cellWidth: 37 }
+    },
+    margin: { left: ML, right: 14 }
   });
 
-  // Footer
-  const finalY = doc.lastAutoTable.finalY + 15;
-  doc.setFontSize(9); doc.setFont(undefined, 'italic'); doc.setTextColor(80,80,80);
-  doc.text('Arrêtée la présente facture à la somme de : ' + formatMoney(facture.totalTTC), 14, finalY);
-  doc.setFont(undefined, 'normal');
-  doc.text('Merci de votre confiance.', 14, finalY + 10);
+  // ── Bloc totaux (bas-droite) ──────────────────────────────────
+  const tY = doc.lastAutoTable.finalY + 5;
+  const tX = 130;
+  doc.setLineWidth(0.2); doc.setDrawColor(200, 200, 200);
+  doc.line(tX, tY, MR, tY);
 
-  doc.text('Signature & Cachet', 150, finalY + 30);
+  const rows = [
+    ['Total HT',                    formatMoney(facture.totalHT)],
+    ['Remise',                       '– ' + formatMoney(facture.remise)],
+    ['TVA (' + facture.tvaPct + '%)', formatMoney(facture.tva)],
+  ];
+  let ry = tY + 7;
+  doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(60, 60, 60);
+  rows.forEach(([k, v]) => {
+    doc.text(k, tX + 2, ry);
+    doc.text(v, MR, ry, { align: 'right' });
+    ry += 6;
+  });
+
+  // Ligne Total TTC
+  doc.setFillColor(30, 30, 30);
+  doc.rect(tX, ry - 1, MR - tX, 9, 'F');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(255, 255, 255);
+  doc.text('TOTAL TTC', tX + 2, ry + 5);
+  doc.text(formatMoney(facture.totalTTC), MR, ry + 5, { align: 'right' });
+
+  // ── Mention arrêtée + signature ───────────────────────────────
+  const sigY = ry + 22;
+  doc.setFontSize(8); doc.setFont('helvetica', 'italic'); doc.setTextColor(100, 100, 100);
+  doc.text(
+    'Arrêtée la présente facture à la somme de ' + formatMoney(facture.totalTTC) + '.',
+    ML, sigY
+  );
+
+  doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(60, 60, 60);
+  doc.text('Signature & Cachet', MR, sigY + 16, { align: 'right' });
+  doc.setDrawColor(180, 180, 180);
+  doc.line(MR - 45, sigY + 20, MR, sigY + 20);
+
+  // ── Pied de page ─────────────────────────────────────────────
+  const pH = doc.internal.pageSize.height;
+  doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.3);
+  doc.line(ML, pH - 14, MR, pH - 14);
+  doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(150, 150, 150);
+  doc.text('LA TERMITIÈRE · AGOE DALIKO, Lomé · Tél : 00228 96 09 49 49 · latermitiere2021@gmail.com', 105, pH - 9, { align: 'center' });
+  doc.text('N° CFE : 06143PM2021/2024 · N° RCCM : TG-LFW-01-2024-M-10838', 105, pH - 5, { align: 'center' });
 
   doc.save(facture.num + '.pdf');
 }
@@ -5098,6 +5156,7 @@ function generateAndSendReport(type) {
   }
   const { jsPDF } = window.jspdf;
   const doc   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const W = 210, ML = 14, MR = 196;
   const today = new Date();
   const label = type === 'weekly' ? 'Rapport Hebdomadaire' : 'Rapport Mensuel';
   const dates = Object.keys(DB.inventaires).sort();
@@ -5112,24 +5171,32 @@ function generateAndSendReport(type) {
   }
   const filteredDates = dates.filter(d => !dateMin || d >= dateMin);
 
-  // En-tête
-  doc.setFillColor(22, 163, 74);
-  doc.rect(0, 0, 210, 35, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(18); doc.setFont('helvetica', 'bold');
-  doc.text('MAXI-AGRO — LA TERMITIÈRE', 105, 13, { align: 'center' });
-  doc.setFontSize(12); doc.setFont('helvetica', 'normal');
-  doc.text(label + ' — ' + today.toLocaleDateString('fr-FR'), 105, 22, { align: 'center' });
-  doc.text('Généré le ' + today.toLocaleDateString('fr-FR', { weekday:'long', day:'2-digit', month:'long', year:'numeric' }), 105, 30, { align: 'center' });
+  // ── En-tête sobre ────────────────────────────────────────────
+  doc.setFillColor(245, 245, 245);
+  doc.rect(0, 0, W, 38, 'F');
 
-  doc.setTextColor(0, 0, 0);
-  let y = 45;
+  // Gauche : société
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(30, 30, 30);
+  doc.text('LA TERMITIÈRE — MAXI-AGRO', ML, 11);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(90, 90, 90);
+  doc.text('AGOE DALIKO, Lomé · Tél : 00228 96 09 49 49 · latermitiere2021@gmail.com', ML, 17);
+  doc.text('N° CFE : 06143PM2021/2024 · N° RCCM : TG-LFW-01-2024-M-10838', ML, 22);
 
-  // Chiffres clés
-  doc.setFontSize(13); doc.setFont('helvetica', 'bold');
-  doc.text('CHIFFRES CLÉS DE LA PÉRIODE', 14, y); y += 7;
-  doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+  // Droite : titre du rapport
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(30, 30, 30);
+  doc.text(label.toUpperCase(), MR, 11, { align: 'right' });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90, 90, 90);
+  const periode = type === 'weekly'
+    ? '7 derniers jours'
+    : today.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  doc.text('Période : ' + periode, MR, 18, { align: 'right' });
+  doc.text('Généré le ' + today.toLocaleDateString('fr-FR', { day:'2-digit', month:'long', year:'numeric' }), MR, 24, { align: 'right' });
 
+  // Ligne de séparation
+  doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.3);
+  doc.line(ML, 40, MR, 40);
+
+  // ── Calcul des données ───────────────────────────────────────
   const lastDate = filteredDates.length ? filteredDates[filteredDates.length - 1] : null;
   let totFin = 0, totNaiss = 0, totDec = 0, totSor = 0;
   filteredDates.forEach(d => {
@@ -5144,81 +5211,126 @@ function generateAndSendReport(type) {
 
   const kpis = [
     ['Effectif total (dernier inventaire)', totFin + ' têtes'],
-    ['Naissances sur la période', totNaiss + ' têtes'],
-    ['Décès sur la période', totDec + ' têtes'],
-    ['Sorties sur la période', totSor + ' têtes'],
-    ['Chiffre d\'affaires', totCA.toLocaleString('fr-FR') + ' FCFA'],
-    ['Journées de saisie', filteredDates.length + ' jour(s)'],
+    ['Naissances sur la période',           totNaiss + ' têtes'],
+    ['Décès sur la période',                totDec + ' têtes'],
+    ['Sorties sur la période',              totSor + ' têtes'],
+    ['Chiffre d\'affaires',                 totCA.toLocaleString('fr-FR') + ' FCFA'],
+    ['Journées de saisie',                  filteredDates.length + ' jour(s)'],
   ];
-  kpis.forEach(([k, v]) => {
-    doc.setFont('helvetica', 'bold'); doc.text(k + ' :', 16, y);
-    doc.setFont('helvetica', 'normal'); doc.text(v, 110, y); y += 6;
+
+  // ── Titre section Chiffres clés ──────────────────────────────
+  let y = 48;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(30, 30, 30);
+  doc.text('CHIFFRES CLÉS DE LA PÉRIODE', ML, y); y += 2;
+  doc.setDrawColor(22, 163, 74); doc.setLineWidth(0.6);
+  doc.line(ML, y, ML + 70, y); y += 6;
+
+  // KPIs dans un tableau propre
+  doc.autoTable({
+    startY: y,
+    body: kpis.map(([k, v]) => [k, v]),
+    styles: { fontSize: 9, cellPadding: 3, lineColor: [230, 230, 230], lineWidth: 0.2 },
+    columnStyles: {
+      0: { fontStyle: 'normal', textColor: [60, 60, 60], cellWidth: 120 },
+      1: { fontStyle: 'bold',   textColor: [22, 163, 74], halign: 'right', cellWidth: 62 }
+    },
+    alternateRowStyles: { fillColor: [250, 250, 250] },
+    margin: { left: ML, right: 14 }
   });
+  y = doc.lastAutoTable.finalY + 10;
 
-  // Tableau inventaire
-  y += 5;
-  doc.setFontSize(13); doc.setFont('helvetica', 'bold');
-  doc.text('INVENTAIRE PAR ESPÈCE', 14, y); y += 7;
+  // ── Inventaire par espèce ────────────────────────────────────
+  if (DB.especes.length && lastDate) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(30, 30, 30);
+    doc.text('INVENTAIRE PAR ESPÈCE — ' + lastDate, ML, y); y += 2;
+    doc.setDrawColor(22, 163, 74); doc.setLineWidth(0.6);
+    doc.line(ML, y, ML + 80, y); y += 4;
 
-  if (typeof doc.autoTable === 'function' && DB.especes.length && lastDate) {
     const tableData = DB.especes.map(e => {
       const v = DB.inventaires[lastDate]?.animaux?.[e.id] || {};
-      return [e.nom, e.cat, v.init||0, v.naiss||0, v.ent||0, v.sor||0, v.dec||0, v.fin||0];
+      return [e.nom, v.init||0, v.naiss||0, v.ent||0, v.sor||0, v.dec||0, v.fin||0];
     });
     doc.autoTable({
-      startY: y, head: [['Espèce','Catégorie','Init.','Naiss.','Entrées','Sorties','Décès','EF Final']],
-      body: tableData, theme: 'striped',
-      headStyles: { fillColor: [22, 163, 74], textColor: 255, fontStyle: 'bold' },
-      styles: { fontSize: 9 }, margin: { left: 14, right: 14 }
+      startY: y,
+      head: [['Espèce', 'Init.', 'Naiss.', 'Entrées', 'Sorties', 'Décès', 'EF Final']],
+      body: tableData,
+      headStyles: {
+        fillColor: [30, 30, 30], textColor: [255, 255, 255],
+        fontStyle: 'bold', fontSize: 9
+      },
+      bodyStyles: { fontSize: 9, textColor: [40, 40, 40] },
+      alternateRowStyles: { fillColor: [250, 250, 250] },
+      styles: { lineColor: [220, 220, 220], lineWidth: 0.2, cellPadding: 3 },
+      columnStyles: {
+        0: { cellWidth: 50 },
+        1: { halign: 'center' }, 2: { halign: 'center' }, 3: { halign: 'center' },
+        4: { halign: 'center' }, 5: { halign: 'center' },
+        6: { halign: 'center', fontStyle: 'bold', textColor: [22, 163, 74] }
+      },
+      margin: { left: ML, right: 14 }
     });
     y = doc.lastAutoTable.finalY + 10;
   }
 
-  // Actes sanitaires récents
+  // ── Actes sanitaires récents ─────────────────────────────────
   const santeRecents = (DB.sanitaire||[]).filter(s => !dateMin || s.date >= dateMin);
   if (santeRecents.length) {
-    doc.setFontSize(13); doc.setFont('helvetica', 'bold');
     if (y > 240) { doc.addPage(); y = 20; }
-    doc.text('ACTES SANITAIRES', 14, y); y += 7;
-    if (typeof doc.autoTable === 'function') {
-      doc.autoTable({
-        startY: y, head: [['Date','Espèce','Type','Produit','Nb traités','Prochain RDV']],
-        body: santeRecents.map(s => [s.date, s.especeNom, s.type, s.produit||'-', s.nbTraites||0, s.prochainRdv||'-']),
-        theme: 'striped',
-        headStyles: { fillColor: [2, 132, 199], textColor: 255 },
-        styles: { fontSize: 8 }, margin: { left: 14, right: 14 }
-      });
-      y = doc.lastAutoTable.finalY + 10;
-    }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(30, 30, 30);
+    doc.text('ACTES SANITAIRES', ML, y); y += 2;
+    doc.setDrawColor(2, 132, 199); doc.setLineWidth(0.6);
+    doc.line(ML, y, ML + 55, y); y += 4;
+
+    doc.autoTable({
+      startY: y,
+      head: [['Date', 'Espèce', 'Type', 'Produit', 'Nb traités', 'Prochain RDV']],
+      body: santeRecents.map(s => [s.date, s.especeNom||'-', s.type||'-', s.produit||'-', s.nbTraites||0, s.prochainRdv||'—']),
+      headStyles: {
+        fillColor: [30, 30, 30], textColor: [255, 255, 255],
+        fontStyle: 'bold', fontSize: 8
+      },
+      bodyStyles: { fontSize: 8, textColor: [40, 40, 40] },
+      alternateRowStyles: { fillColor: [250, 250, 250] },
+      styles: { lineColor: [220, 220, 220], lineWidth: 0.2, cellPadding: 3 },
+      columnStyles: { 5: { textColor: [2, 132, 199], fontStyle: 'bold' } },
+      margin: { left: ML, right: 14 }
+    });
   }
 
-  // Pied de page
-  const pageH = doc.internal.pageSize.height;
-  doc.setFontSize(8); doc.setTextColor(150, 150, 150);
-  doc.text('MAXI-AGRO v1.0 — LA TERMITIÈRE — AGOE DALIKO, Lomé — 00228 96 09 49 49', 105, pageH - 8, { align: 'center' });
+  // ── Pied de page sur toutes les pages ────────────────────────
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    const pH = doc.internal.pageSize.height;
+    doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.3);
+    doc.line(ML, pH - 14, MR, pH - 14);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(150, 150, 150);
+    doc.text('LA TERMITIÈRE — MAXI-AGRO · AGOE DALIKO, Lomé · latermitiere2021@gmail.com', ML, pH - 9);
+    doc.text('Page ' + i + ' / ' + pageCount, MR, pH - 9, { align: 'right' });
+  }
 
-  // Télécharger en local
+  // ── Téléchargement ───────────────────────────────────────────
   const filename = `MAXI-AGRO_rapport_${type}_${todayStr()}.pdf`;
   doc.save(filename);
   audit('RAPPORT_PDF', `Rapport PDF ${type} généré — ${filename}`);
 
-  // Envoyer par email si EmailJS configuré
+  // ── Envoi email si EmailJS configuré ─────────────────────────
   const ejsCfg = DB.emailjs || {};
   if (ejsCfg.serviceId && ejsCfg.templateId && ejsCfg.publicKey && ejsCfg.email) {
     try {
       emailjs.init(ejsCfg.publicKey);
       const params = {
-        to_email: ejsCfg.email,
-        subject:  `MAXI-AGRO — ${label} du ${today.toLocaleDateString('fr-FR')}`,
-        message:  `Bonjour,\n\nVeuillez trouver ci-joint le ${label} de MAXI-AGRO.\n\nChiffres clés :\n` +
-                  kpis.map(([k,v]) => `• ${k} : ${v}`).join('\n') +
-                  `\n\nBien cordialement,\nMAXI-AGRO — LA TERMITIÈRE`,
-        ferme_nom: 'LA TERMITIÈRE — MAXI-AGRO',
-        periode:   label,
-        effectif:  totFin,
+        to_email:   ejsCfg.email,
+        subject:    `MAXI-AGRO — ${label} du ${today.toLocaleDateString('fr-FR')}`,
+        message:    `Bonjour,\n\nVeuillez trouver ci-joint le ${label} de MAXI-AGRO.\n\nChiffres clés :\n` +
+                    kpis.map(([k,v]) => `• ${k} : ${v}`).join('\n') +
+                    `\n\nBien cordialement,\nMAXI-AGRO — LA TERMITIÈRE`,
+        ferme_nom:  'LA TERMITIÈRE — MAXI-AGRO',
+        periode:    label,
+        effectif:   totFin,
         naissances: totNaiss,
-        deces:     totDec,
-        ca:        totCA.toLocaleString('fr-FR') + ' FCFA'
+        deces:      totDec,
+        ca:         totCA.toLocaleString('fr-FR') + ' FCFA'
       };
       emailjs.send(ejsCfg.serviceId, ejsCfg.templateId, params)
         .then(() => toast('📧 Rapport envoyé par email à ' + ejsCfg.email, 'success'))
