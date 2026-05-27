@@ -1438,11 +1438,11 @@ tbody tr:hover td { background: #f0fdf4; }
     </div>
 
     <!-- Modal ajout acte sanitaire -->
-    <div id="modalSanitaire" class="modal">
-      <div class="modal-content">
+    <div class="modal-backdrop" id="modalSanitaire">
+      <div class="modal" style="max-width:600px;">
         <div class="modal-header">
-          <span class="modal-title" id="sanitaireMdTitle">➕ Acte sanitaire</span>
-          <button class="modal-close" onclick="closeModal('modalSanitaire')">✕</button>
+          <div class="modal-title" id="sanitaireMdTitle">➕ Acte sanitaire</div>
+          <button class="modal-close" onclick="closeModal('modalSanitaire')">×</button>
         </div>
         <div class="modal-body">
           <div class="row">
@@ -2493,11 +2493,14 @@ function renderSaisie() {
         d.articleId === e.id && d.dateSortie === date
       ).reduce((s, d) => s + (parseInt(d.qte)||0), 0);
       // Si aucune demande mais une valeur était enregistrée, on la conserve à l'affichage
-      const displaySor = autoSor > 0 ? autoSor : (data.sor || 0);
+      const storedSor = data.sor || 0;
+      const displaySor = autoSor > 0 ? autoSor : storedSor;
       const naiss = data.naiss || 0;
       const ent   = data.ent   || 0;
       const dec   = data.dec   || 0;
-      const fin   = data.fin !== undefined ? data.fin : Math.max(0, initial + naiss + ent - displaySor - dec);
+      // Recalculer EF Final si les sorties auto ont changé par rapport à ce qui était enregistré
+      const finBase = Math.max(0, initial + naiss + ent - displaySor - dec);
+      const fin = (data.fin !== undefined && autoSor === storedSor) ? data.fin : finBase;
       // EF Initial : modifiable admin seulement
       const initAttrs = isAdmin
         ? `class="num-input" onchange="recalcAnim('${e.id}')"  title="Effectif initial"`
