@@ -20,6 +20,8 @@
 <!-- Firebase SDK — Synchronisation temps réel -->
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+<script src="https://cdn.emailjs.com/dist/email.min.js"></script>
 
 <style>
 /* ============================================================
@@ -1019,10 +1021,10 @@ tbody tr:hover td { background: #f0fdf4; }
               <thead>
                 <tr>
                   <th>Espèce</th>
-                  <th style="text-align:center">EF. Initial</th>
-                  <th style="text-align:center">Naissance</th>
+                  <th style="text-align:center" title="Modifiable par l'admin uniquement — Auto depuis EF Final de la veille">EF. Initial 🔒</th>
+                  <th style="text-align:center">Naissances</th>
                   <th style="text-align:center">Entrées</th>
-                  <th style="text-align:center">Sorties</th>
+                  <th style="text-align:center" title="Calculé automatiquement depuis les demandes approuvées">Sorties 🔄</th>
                   <th style="text-align:center">Décès</th>
                   <th style="text-align:center">EF. Final</th>
                 </tr>
@@ -1322,7 +1324,9 @@ tbody tr:hover td { background: #f0fdf4; }
       <!-- DATA -->
       <div id="params-data" style="display:none">
         <div class="card">
-          <div class="card-title">Sauvegarde & Restauration</div>
+          <div class="card-title">💾 Backup automatique quotidien</div>
+          <div id="backupStatusLine" style="font-size:12px;color:var(--text-muted);margin-bottom:10px;"></div>
+          <button class="btn btn-success btn-block" onclick="backupJSON()" style="margin-bottom:8px">💾 Télécharger backup JSON (maintenant)</button>
           <button class="btn btn-info btn-block" onclick="exportData()" style="margin-bottom:8px">📥 Exporter toutes les données (JSON)</button>
           <button class="btn btn-warning btn-block" onclick="document.getElementById('importFile').click()" style="margin-bottom:8px">📤 Importer données (JSON)</button>
           <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
@@ -1333,6 +1337,40 @@ tbody tr:hover td { background: #f0fdf4; }
           </div>
           <hr style="margin:12px 0;border:none;border-top:2px dashed var(--border);">
           <button class="btn btn-danger btn-block" onclick="resetData()">🗑️ Réinitialiser toutes les données</button>
+        </div>
+        <div class="card">
+          <div class="card-title">📧 Rapports PDF automatiques (EmailJS)</div>
+          <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">Configurez <strong>EmailJS</strong> (gratuit — <a href="https://emailjs.com" target="_blank">emailjs.com</a>) pour recevoir vos rapports hebdomadaires/mensuels par email.</p>
+          <div class="row">
+            <div class="form-group">
+              <label class="form-label">Service ID EmailJS</label>
+              <input type="text" class="form-control" id="ejsServiceId" placeholder="service_xxxxxxx">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Template ID</label>
+              <input type="text" class="form-control" id="ejsTemplateId" placeholder="template_xxxxxxx">
+            </div>
+          </div>
+          <div class="row">
+            <div class="form-group">
+              <label class="form-label">Public Key</label>
+              <input type="text" class="form-control" id="ejsPublicKey" placeholder="Votre clé publique EmailJS">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Email destinataire</label>
+              <input type="email" class="form-control" id="ejsEmail" placeholder="directeur@ferme.com">
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="saveEmailJSConfig()" style="flex:1">💾 Sauvegarder config</button>
+            <button class="btn btn-info" onclick="generateAndSendReport('weekly')" style="flex:1">📧 Rapport hebdo maintenant</button>
+            <button class="btn btn-secondary" onclick="generateAndSendReport('monthly')" style="flex:1">📧 Rapport mensuel maintenant</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">🔔 Notifications</div>
+          <button class="btn btn-info btn-block" onclick="requestNotifPermission()" style="margin-bottom:8px">🔔 Activer les notifications navigateur</button>
+          <div id="notifStatus" style="font-size:12px;color:var(--text-muted);margin-top:4px;"></div>
         </div>
         <div class="card">
           <div class="card-title">📋 À propos</div>
@@ -1350,6 +1388,114 @@ tbody tr:hover td { background: #f0fdf4; }
     </div>
 
   </div>
+
+    <!-- ===== SUIVI SANITAIRE ===== -->
+    <div id="page-sante" class="page">
+      <div class="page-header">
+        <div class="page-title">🩺 Santé &amp; Vétérinaire</div>
+        <button class="btn btn-sm btn-success" onclick="openSanitaireForm()">➕ Ajouter acte</button>
+      </div>
+
+      <!-- Alerte RDV urgents -->
+      <div id="santeAlertBox" style="display:none;background:rgba(220,38,38,0.10);border:1px solid rgba(220,38,38,0.30);border-radius:10px;padding:12px 16px;margin-bottom:12px;color:#dc2626;font-size:13px;"></div>
+
+      <div class="tabs">
+        <button class="tab active" onclick="switchSanteTab(this,'historique')">📋 Historique</button>
+        <button class="tab" onclick="switchSanteTab(this,'avenirs')">📅 À venir</button>
+      </div>
+
+      <div id="sante-historique">
+        <div class="card">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+            <select id="santeFilterType" class="form-control" style="flex:1;min-width:120px;font-size:12px;" onchange="renderSante()">
+              <option value="">Tous types</option>
+              <option value="vaccin">💉 Vaccins</option>
+              <option value="depar">🔬 Déparasitage</option>
+              <option value="traitement">💊 Traitement</option>
+              <option value="autre">📎 Autre</option>
+            </select>
+            <select id="santeFilterEspece" class="form-control" style="flex:1;min-width:120px;font-size:12px;" onchange="renderSante()">
+              <option value="">Toutes espèces</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Date</th><th>Espèce</th><th>Type</th><th>Produit / Dose</th>
+                <th style="text-align:center">Nb traités</th><th>Prochain RDV</th><th>Agent</th><th></th>
+              </tr></thead>
+              <tbody id="tbodySante"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="sante-avenirs" style="display:none">
+        <div class="card" id="santeAvenirContent">
+          <div class="empty"><div class="icon">📅</div><p>Aucun rendez-vous planifié</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal ajout acte sanitaire -->
+    <div id="modalSanitaire" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <span class="modal-title" id="sanitaireMdTitle">➕ Acte sanitaire</span>
+          <button class="modal-close" onclick="closeModal('modalSanitaire')">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="row">
+            <div class="form-group">
+              <label class="form-label">Date *</label>
+              <input type="date" class="form-control" id="sanDate">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Espèce / Lot *</label>
+              <select class="form-control" id="sanEspece"></select>
+            </div>
+          </div>
+          <div class="row">
+            <div class="form-group">
+              <label class="form-label">Type d'acte *</label>
+              <select class="form-control" id="sanType">
+                <option value="vaccin">💉 Vaccin</option>
+                <option value="depar">🔬 Déparasitage</option>
+                <option value="traitement">💊 Traitement</option>
+                <option value="autre">📎 Autre</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Nb animaux traités</label>
+              <input type="number" class="form-control" id="sanNbTraites" min="0" value="0">
+            </div>
+          </div>
+          <div class="row">
+            <div class="form-group">
+              <label class="form-label">Produit utilisé</label>
+              <input type="text" class="form-control" id="sanProduit" placeholder="Ex: Ivermectine, Pénicilline…">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Dose / Quantité</label>
+              <input type="text" class="form-control" id="sanDose" placeholder="Ex: 5ml, 2 comprimés…">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Prochain rendez-vous (si applicable)</label>
+            <input type="date" class="form-control" id="sanProchainRdv">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Observations / Notes</label>
+            <textarea class="form-control" id="sanNotes" rows="2" placeholder="Notes supplémentaires…"></textarea>
+          </div>
+          <input type="hidden" id="sanEditId">
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="closeModal('modalSanitaire')">Annuler</button>
+          <button class="btn btn-success" onclick="saveSanitaire()">💾 Enregistrer</button>
+        </div>
+      </div>
+    </div>
 
     <!-- ===== DEMANDES & TRAÇABILITÉ ===== -->
     <div id="page-demandes" class="page">
@@ -1481,6 +1627,9 @@ tbody tr:hover td { background: #f0fdf4; }
     </button>
     <button class="nav-item" data-page="analyses" onclick="showPage('analyses', this)">
       <span class="icon">📈</span><span>Analyses</span>
+    </button>
+    <button class="nav-item" data-page="sante" onclick="showPage('sante', this)">
+      <span class="icon">🩺</span><span>Santé</span><span id="badgeSante" class="badge badge-danger" style="display:none;position:absolute;top:2px;right:2px;font-size:10px;min-width:16px;padding:1px 4px;border-radius:8px;background:var(--danger);color:#fff"></span>
     </button>
     <button class="nav-item" data-page="demandes" onclick="showPage('demandes', this)">
       <span class="icon">📋</span><span>Demandes</span>
@@ -2011,7 +2160,10 @@ function loadDB() {
     demandes: [],      // demandes de sortie avec workflow d'approbation
     audit: [],
     prixPersos: {},    // surcharges de prix
-    firebase:   {}     // config Firebase temps réel
+    firebase:   {},    // config Firebase temps réel
+    sanitaire:  [],    // suivi sanitaire (vaccins, traitements, déparasitage)
+    emailjs:    {},    // config EmailJS pour rapports auto
+    lastBackupDate: null  // date du dernier backup JSON
   };
 }
 
@@ -2157,11 +2309,21 @@ function enterApp() {
   }
 
   renderAll();
-  startRealtimeSync(); // Firebase temps réel si configuré, sinon Google Sheets polling
-  // Demander permission notifications navigateur (seulement si API dispo, non iOS Safari)
-  if ('Notification' in window && Notification.permission === 'default') {
-    setTimeout(() => Notification.requestPermission(), 3000);
-  }
+  startRealtimeSync();
+  // 🔔 Activer notifications navigateur
+  setTimeout(() => requestNotifPermission(), 3000);
+  // 💾 Rappel backup si > 1 jour sans backup
+  setTimeout(() => {
+    const last = DB.lastBackupDate;
+    if (!last) {
+      toast('💾 Aucun backup détecté — pensez à sauvegarder vos données (Réglages → Données)', 'warning');
+    } else {
+      const days = Math.floor((new Date(todayStr()) - new Date(last)) / 86400000);
+      if (days >= 1) toast(`⚠️ Dernier backup il y a ${days} jour${days>1?'s':''} — Réglages → Données → Backup`, 'warning');
+    }
+  }, 5000);
+  // 🩺 Badge santé
+  setTimeout(updateSanteBadge, 1000);
 }
 
 function logout() {
@@ -2225,6 +2387,7 @@ function showPage(name, btn) {
   if (name === 'analyses')  updateAnalyses();
   if (name === 'params')    renderParams();
   if (name === 'demandes')  renderDemandes();
+  if (name === 'sante')     renderSante();
 
   // Journal : reverrouillez à chaque navigation
   if (name === 'journal') {
@@ -2311,26 +2474,43 @@ function renderSaisie() {
   const prevInv = prevDate ? DB.inventaires[prevDate] : null;
 
   // ANIMAUX — toutes catégories, y compris les personnalisées
+  const isAdmin = currentUser && currentUser.role === 'admin';
   const baseCats = ['OVINS', 'BOVINS', 'CAPRINS', 'VOLAILLES'];
   const customAnimalCats = [...new Set(DB.especes.map(e => e.cat))].filter(c => !baseCats.includes(c));
   const cats = [...baseCats, ...customAnimalCats];
   cats.forEach(cat => {
-    if (!DB.especes.some(e => e.cat === cat)) return; // skip si vide
+    if (!DB.especes.some(e => e.cat === cat)) return;
     const catClass = baseCats.includes(cat) ? cat.toLowerCase() : 'custom-cat';
     tbAnim.innerHTML += `<tr class="category-row ${catClass}"><td colspan="7">${cat}</td></tr>`;
     DB.especes.filter(e => e.cat === cat).forEach(e => {
       const data = inv.animaux[e.id] || {};
+      // EF Initial = valeur sauvegardée OU EF Final de la veille (report automatique)
       const initial = data.init !== undefined ? data.init :
                       (prevInv && prevInv.animaux[e.id] ? prevInv.animaux[e.id].fin : 0);
+      // Sorties = total des demandes approuvées pour cet animal à cette date de sortie
+      const autoSor = (DB.demandes||[]).filter(d =>
+        d.statut === 'approuve' && d.typeArticle === 'animal' &&
+        d.articleId === e.id && d.dateSortie === date
+      ).reduce((s, d) => s + (parseInt(d.qte)||0), 0);
+      // Si aucune demande mais une valeur était enregistrée, on la conserve à l'affichage
+      const displaySor = autoSor > 0 ? autoSor : (data.sor || 0);
+      const naiss = data.naiss || 0;
+      const ent   = data.ent   || 0;
+      const dec   = data.dec   || 0;
+      const fin   = data.fin !== undefined ? data.fin : Math.max(0, initial + naiss + ent - displaySor - dec);
+      // EF Initial : modifiable admin seulement
+      const initAttrs = isAdmin
+        ? `class="num-input" onchange="recalcAnim('${e.id}')"  title="Effectif initial"`
+        : `class="num-input num-readonly" readonly title="Réservé à l'administrateur — auto depuis veille"`;
       tbAnim.innerHTML += `
         <tr>
           <td><strong>${e.nom}</strong></td>
-          <td style="text-align:center"><input type="number" class="num-input" id="init_${e.id}" value="${initial}" min="0" onchange="recalcAnim('${e.id}')"></td>
-          <td style="text-align:center"><input type="number" class="num-input" id="naiss_${e.id}" value="${data.naiss||0}" min="0" onchange="recalcAnim('${e.id}')"></td>
-          <td style="text-align:center"><input type="number" class="num-input" id="ent_${e.id}" value="${data.ent||0}" min="0" onchange="recalcAnim('${e.id}')"></td>
-          <td style="text-align:center"><input type="number" class="num-input" id="sor_${e.id}" value="${data.sor||0}" min="0" onchange="recalcAnim('${e.id}')"></td>
-          <td style="text-align:center"><input type="number" class="num-input" id="dec_${e.id}" value="${data.dec||0}" min="0" onchange="recalcAnim('${e.id}', true)"></td>
-          <td style="text-align:center"><input type="number" class="num-input num-readonly" id="fin_${e.id}" value="${data.fin!==undefined?data.fin:initial}" readonly></td>
+          <td style="text-align:center"><input type="number" id="init_${e.id}" value="${initial}" min="0" ${initAttrs}></td>
+          <td style="text-align:center"><input type="number" class="num-input" id="naiss_${e.id}" value="${naiss}" min="0" onchange="recalcAnim('${e.id}')"></td>
+          <td style="text-align:center"><input type="number" class="num-input" id="ent_${e.id}" value="${ent}" min="0" onchange="recalcAnim('${e.id}')"></td>
+          <td style="text-align:center" title="Auto depuis demandes approuvées — non modifiable"><input type="number" class="num-input num-readonly" id="sor_${e.id}" value="${displaySor}" min="0" readonly></td>
+          <td style="text-align:center"><input type="number" class="num-input" id="dec_${e.id}" value="${dec}" min="0" onchange="recalcAnim('${e.id}', true)"></td>
+          <td style="text-align:center"><input type="number" class="num-input num-readonly" id="fin_${e.id}" value="${fin}" readonly></td>
         </tr>`;
     });
   });
@@ -2443,10 +2623,12 @@ function saveSaisie() {
       return;
     }
 
-    // ── Sauvegarder ──
+    // ── Sauvegarder localement + sync Firebase immédiate ──
     DB.inventaires[date] = inv;
     _decesMotifs = {};
-    saveDB();
+    localStorage.setItem(DB_KEY, JSON.stringify(DB));  // sauvegarde locale immédiate
+    if (_fbRef) pushToFirebase();                       // sync Firebase
+    else autoSyncGSheets();
     audit('SAISIE', `Saisie du ${date} — ${currentUser.nom}`);
 
     // ── Retour visuel complet ──
@@ -3268,6 +3450,26 @@ function renderParams() {
     if (dataPanel)    dataPanel.style.display    = 'none';
   }
 
+  // ── Pré-remplir config EmailJS ──
+  const ejsCfg = DB.emailjs || {};
+  const ejsSvc = document.getElementById('ejsServiceId');
+  const ejsTpl = document.getElementById('ejsTemplateId');
+  const ejsKey = document.getElementById('ejsPublicKey');
+  const ejsMail= document.getElementById('ejsEmail');
+  if (ejsSvc)  ejsSvc.value  = ejsCfg.serviceId  || '';
+  if (ejsTpl)  ejsTpl.value  = ejsCfg.templateId || '';
+  if (ejsKey)  ejsKey.value  = ejsCfg.publicKey  || '';
+  if (ejsMail) ejsMail.value = ejsCfg.email       || '';
+  updateBackupStatusLine();
+  // ── Statut notifications ──
+  const notifEl = document.getElementById('notifStatus');
+  if (notifEl) {
+    if (!('Notification' in window)) notifEl.innerHTML = '⚠️ Non supporté';
+    else if (Notification.permission === 'granted') notifEl.innerHTML = '✅ Activées';
+    else if (Notification.permission === 'denied')  notifEl.innerHTML = '❌ Refusées (modifier dans le navigateur)';
+    else notifEl.innerHTML = '⚪ Non activées — cliquez le bouton ci-dessus';
+  }
+
   // ── Espèces & Prix (tous les rôles) ──
   const tbE = document.getElementById('tbodyEspeces');
   const all = [...DB.especes, ...DB.aliments];
@@ -3476,6 +3678,9 @@ function sanitizeDB() {
   if (!DB.users)       DB.users       = [];
   if (!DB.firebase)    DB.firebase    = {};
   if (!DB.gsheets)     DB.gsheets     = {};
+  if (!DB.sanitaire)   DB.sanitaire   = [];
+  if (!DB.emailjs)     DB.emailjs     = {};
+  if (!('lastBackupDate' in DB)) DB.lastBackupDate = null;
 }
 
 function renderAll() {
@@ -3706,11 +3911,12 @@ function appliquerDecision(id, decision) {
   d.commentaireDecision = commentaire;
 
   if (decision === 'approuve') {
-    // L'autorisation est enregistrée — la sortie est à saisir manuellement dans l'onglet Saisie
-    // (ne pas modifier DB.inventaires ici pour éviter les écrasements de données)
-    d.sortieEnregistree = false; // flag pour rappel agent
-    audit('APPROBATION', `Approuvé DEM ${d.num} — ${d.qte} × ${d.articleNom} (demandeur: ${d.demandeurNom}) — sortie à enregistrer en Saisie`);
-    toast('✅ Demande approuvée — enregistrer la sortie dans l\'onglet Saisie', 'success');
+    // La sortie s'incrémente automatiquement dans la saisie du jour d.dateSortie
+    audit('APPROBATION', `Approuvé DEM ${d.num} — ${d.qte} × ${d.articleNom} (demandeur: ${d.demandeurNom}) — sortie auto le ${d.dateSortie}`);
+    toast(`✅ Approuvé — ${d.qte} × ${d.articleNom} sortira automatiquement le ${d.dateSortie}`, 'success');
+    // Si l'agent est actuellement sur la page saisie, rafraîchir pour voir la sortie mise à jour
+    const activePage = document.querySelector('.page.active');
+    if (activePage && activePage.id === 'page-saisie') setTimeout(renderSaisie, 300);
   } else {
     audit('REFUS', `Refusé DEM ${d.num} — ${d.articleNom} (demandeur: ${d.demandeurNom}) — ${commentaire}`);
     toast('Demande refusée', 'error');
@@ -4815,6 +5021,393 @@ function doExportExcel() {
   audit('EXPORT_EXCEL', `Rapport ${periodeLabel} — ${filename}`);
 }
 
+// ========== NOTIFICATIONS PUSH ==========
+function requestNotifPermission() {
+  const statusEl = document.getElementById('notifStatus');
+  if (!('Notification' in window)) {
+    if (statusEl) statusEl.innerHTML = '⚠️ Notifications non supportées par ce navigateur.';
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    if (statusEl) statusEl.innerHTML = '✅ Notifications déjà activées.';
+    toast('🔔 Notifications déjà activées', 'success');
+    return;
+  }
+  Notification.requestPermission().then(p => {
+    if (p === 'granted') {
+      if (statusEl) statusEl.innerHTML = '✅ Notifications activées !';
+      toast('🔔 Notifications activées — vous serez alerté en temps réel', 'success');
+      new Notification('MAXI-AGRO ✅', { body: 'Notifications activées avec succès !', icon: './icon-192.png' });
+    } else {
+      if (statusEl) statusEl.innerHTML = '❌ Permission refusée. Activez-les dans les paramètres du navigateur.';
+    }
+  });
+}
+
+function sendBrowserNotif(title, body) {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    try { new Notification(title, { body, icon: './icon-192.png', badge: './icon-192.png' }); } catch(e) {}
+  }
+}
+
+// ========== BACKUP AUTOMATIQUE ==========
+function backupJSON() {
+  const data = JSON.stringify(DB, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `MAXI-AGRO_backup_${todayStr()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  DB.lastBackupDate = todayStr();
+  saveDB();
+  updateBackupStatusLine();
+  toast('✅ Backup téléchargé avec succès', 'success');
+  audit('BACKUP', `Backup JSON du ${todayStr()}`);
+}
+
+function updateBackupStatusLine() {
+  const el = document.getElementById('backupStatusLine');
+  if (!el) return;
+  const last = DB.lastBackupDate;
+  if (!last) { el.innerHTML = '⚠️ <strong>Aucun backup</strong> effectué.'; return; }
+  const days = Math.floor((new Date(todayStr()) - new Date(last)) / 86400000);
+  const color = days === 0 ? 'var(--success)' : (days <= 3 ? 'var(--warning)' : 'var(--danger)');
+  el.innerHTML = `<span style="color:${color}">💾 Dernier backup : <strong>${last}</strong> (${days === 0 ? 'aujourd\'hui' : `il y a ${days} jour${days>1?'s':''}`})</span>`;
+}
+
+// ========== RAPPORTS PDF AUTO (EmailJS) ==========
+function saveEmailJSConfig() {
+  const svc  = (document.getElementById('ejsServiceId')?.value  || '').trim();
+  const tpl  = (document.getElementById('ejsTemplateId')?.value || '').trim();
+  const key  = (document.getElementById('ejsPublicKey')?.value  || '').trim();
+  const mail = (document.getElementById('ejsEmail')?.value      || '').trim();
+  if (!svc || !tpl || !key || !mail) { toast('⚠️ Remplissez tous les champs EmailJS', 'error'); return; }
+  DB.emailjs = { serviceId: svc, templateId: tpl, publicKey: key, email: mail };
+  saveDB();
+  toast('✅ Configuration EmailJS sauvegardée', 'success');
+}
+
+function generateAndSendReport(type) {
+  if (typeof jspdf === 'undefined' && typeof window.jspdf === 'undefined') {
+    toast('⚠️ jsPDF non chargé', 'error'); return;
+  }
+  const { jsPDF } = window.jspdf;
+  const doc   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const today = new Date();
+  const label = type === 'weekly' ? 'Rapport Hebdomadaire' : 'Rapport Mensuel';
+  const dates = Object.keys(DB.inventaires).sort();
+
+  // Filtre dates selon type
+  let dateMin = '';
+  if (type === 'weekly') {
+    const d = new Date(today); d.setDate(d.getDate() - 7);
+    dateMin = d.toISOString().slice(0, 10);
+  } else {
+    dateMin = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-01';
+  }
+  const filteredDates = dates.filter(d => !dateMin || d >= dateMin);
+
+  // En-tête
+  doc.setFillColor(22, 163, 74);
+  doc.rect(0, 0, 210, 35, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(18); doc.setFont('helvetica', 'bold');
+  doc.text('MAXI-AGRO — LA TERMITIÈRE', 105, 13, { align: 'center' });
+  doc.setFontSize(12); doc.setFont('helvetica', 'normal');
+  doc.text(label + ' — ' + today.toLocaleDateString('fr-FR'), 105, 22, { align: 'center' });
+  doc.text('Généré le ' + today.toLocaleDateString('fr-FR', { weekday:'long', day:'2-digit', month:'long', year:'numeric' }), 105, 30, { align: 'center' });
+
+  doc.setTextColor(0, 0, 0);
+  let y = 45;
+
+  // Chiffres clés
+  doc.setFontSize(13); doc.setFont('helvetica', 'bold');
+  doc.text('CHIFFRES CLÉS DE LA PÉRIODE', 14, y); y += 7;
+  doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+
+  const lastDate = filteredDates.length ? filteredDates[filteredDates.length - 1] : null;
+  let totFin = 0, totNaiss = 0, totDec = 0, totSor = 0;
+  filteredDates.forEach(d => {
+    const inv = DB.inventaires[d];
+    DB.especes.forEach(e => {
+      const v = inv.animaux?.[e.id]; if (!v) return;
+      totNaiss += v.naiss || 0; totDec += v.dec || 0; totSor += v.sor || 0;
+    });
+  });
+  if (lastDate) DB.especes.forEach(e => { totFin += DB.inventaires[lastDate].animaux?.[e.id]?.fin || 0; });
+  const totCA = (DB.factures||[]).filter(f => !dateMin || f.date >= dateMin).reduce((s,f) => s+(f.totalTTC||0), 0);
+
+  const kpis = [
+    ['Effectif total (dernier inventaire)', totFin + ' têtes'],
+    ['Naissances sur la période', totNaiss + ' têtes'],
+    ['Décès sur la période', totDec + ' têtes'],
+    ['Sorties sur la période', totSor + ' têtes'],
+    ['Chiffre d\'affaires', totCA.toLocaleString('fr-FR') + ' FCFA'],
+    ['Journées de saisie', filteredDates.length + ' jour(s)'],
+  ];
+  kpis.forEach(([k, v]) => {
+    doc.setFont('helvetica', 'bold'); doc.text(k + ' :', 16, y);
+    doc.setFont('helvetica', 'normal'); doc.text(v, 110, y); y += 6;
+  });
+
+  // Tableau inventaire
+  y += 5;
+  doc.setFontSize(13); doc.setFont('helvetica', 'bold');
+  doc.text('INVENTAIRE PAR ESPÈCE', 14, y); y += 7;
+
+  if (typeof doc.autoTable === 'function' && DB.especes.length && lastDate) {
+    const tableData = DB.especes.map(e => {
+      const v = DB.inventaires[lastDate]?.animaux?.[e.id] || {};
+      return [e.nom, e.cat, v.init||0, v.naiss||0, v.ent||0, v.sor||0, v.dec||0, v.fin||0];
+    });
+    doc.autoTable({
+      startY: y, head: [['Espèce','Catégorie','Init.','Naiss.','Entrées','Sorties','Décès','EF Final']],
+      body: tableData, theme: 'striped',
+      headStyles: { fillColor: [22, 163, 74], textColor: 255, fontStyle: 'bold' },
+      styles: { fontSize: 9 }, margin: { left: 14, right: 14 }
+    });
+    y = doc.lastAutoTable.finalY + 10;
+  }
+
+  // Actes sanitaires récents
+  const santeRecents = (DB.sanitaire||[]).filter(s => !dateMin || s.date >= dateMin);
+  if (santeRecents.length) {
+    doc.setFontSize(13); doc.setFont('helvetica', 'bold');
+    if (y > 240) { doc.addPage(); y = 20; }
+    doc.text('ACTES SANITAIRES', 14, y); y += 7;
+    if (typeof doc.autoTable === 'function') {
+      doc.autoTable({
+        startY: y, head: [['Date','Espèce','Type','Produit','Nb traités','Prochain RDV']],
+        body: santeRecents.map(s => [s.date, s.especeNom, s.type, s.produit||'-', s.nbTraites||0, s.prochainRdv||'-']),
+        theme: 'striped',
+        headStyles: { fillColor: [2, 132, 199], textColor: 255 },
+        styles: { fontSize: 8 }, margin: { left: 14, right: 14 }
+      });
+      y = doc.lastAutoTable.finalY + 10;
+    }
+  }
+
+  // Pied de page
+  const pageH = doc.internal.pageSize.height;
+  doc.setFontSize(8); doc.setTextColor(150, 150, 150);
+  doc.text('MAXI-AGRO v1.0 — LA TERMITIÈRE — AGOE DALIKO, Lomé — 00228 96 09 49 49', 105, pageH - 8, { align: 'center' });
+
+  // Télécharger en local
+  const filename = `MAXI-AGRO_rapport_${type}_${todayStr()}.pdf`;
+  doc.save(filename);
+  audit('RAPPORT_PDF', `Rapport PDF ${type} généré — ${filename}`);
+
+  // Envoyer par email si EmailJS configuré
+  const ejsCfg = DB.emailjs || {};
+  if (ejsCfg.serviceId && ejsCfg.templateId && ejsCfg.publicKey && ejsCfg.email) {
+    try {
+      emailjs.init(ejsCfg.publicKey);
+      const params = {
+        to_email: ejsCfg.email,
+        subject:  `MAXI-AGRO — ${label} du ${today.toLocaleDateString('fr-FR')}`,
+        message:  `Bonjour,\n\nVeuillez trouver ci-joint le ${label} de MAXI-AGRO.\n\nChiffres clés :\n` +
+                  kpis.map(([k,v]) => `• ${k} : ${v}`).join('\n') +
+                  `\n\nBien cordialement,\nMAXI-AGRO — LA TERMITIÈRE`,
+        ferme_nom: 'LA TERMITIÈRE — MAXI-AGRO',
+        periode:   label,
+        effectif:  totFin,
+        naissances: totNaiss,
+        deces:     totDec,
+        ca:        totCA.toLocaleString('fr-FR') + ' FCFA'
+      };
+      emailjs.send(ejsCfg.serviceId, ejsCfg.templateId, params)
+        .then(() => toast('📧 Rapport envoyé par email à ' + ejsCfg.email, 'success'))
+        .catch(e => toast('⚠️ Email non envoyé : ' + e.text, 'warning'));
+    } catch(e) { toast('⚠️ Erreur EmailJS : ' + e.message, 'warning'); }
+  } else {
+    toast('✅ Rapport PDF téléchargé (configurez EmailJS pour l\'envoi auto)', 'success');
+  }
+}
+
+// ========== SUIVI SANITAIRE ==========
+const SANTE_TYPES = { vaccin:'💉 Vaccin', depar:'🔬 Déparasitage', traitement:'💊 Traitement', autre:'📎 Autre' };
+
+function updateSanteBadge() {
+  const badge = document.getElementById('badgeSante');
+  const alertBox = document.getElementById('santeAlertBox');
+  if (!badge) return;
+  const today = todayStr();
+  const soon  = new Date(); soon.setDate(soon.getDate() + 7);
+  const soonStr = soon.toISOString().slice(0, 10);
+  const urgents = (DB.sanitaire||[]).filter(s => s.prochainRdv && s.prochainRdv <= soonStr && s.prochainRdv >= today);
+  const overdue = (DB.sanitaire||[]).filter(s => s.prochainRdv && s.prochainRdv < today);
+  const total = urgents.length + overdue.length;
+  badge.style.display = total > 0 ? 'inline' : 'none';
+  badge.textContent = total;
+  if (alertBox) {
+    if (overdue.length) {
+      alertBox.style.display = 'block';
+      alertBox.innerHTML = `🚨 <strong>${overdue.length} rendez-vous sanitaire${overdue.length>1?'s':''} en retard !</strong> ` +
+        overdue.map(s => `${s.especeNom} (${s.prochainRdv})`).join(', ');
+    } else if (urgents.length) {
+      alertBox.style.display = 'block';
+      alertBox.style.background = 'rgba(217,119,6,0.10)';
+      alertBox.style.borderColor = 'rgba(217,119,6,0.30)';
+      alertBox.style.color = '#d97706';
+      alertBox.innerHTML = `⚠️ <strong>${urgents.length} rendez-vous dans les 7 prochains jours :</strong> ` +
+        urgents.map(s => `${s.especeNom} le ${s.prochainRdv}`).join(', ');
+    } else {
+      alertBox.style.display = 'none';
+    }
+  }
+}
+
+function openSanitaireForm(id) {
+  const sel = document.getElementById('sanEspece');
+  sel.innerHTML = DB.especes.map(e => `<option value="${e.id}" data-nom="${e.nom}" data-cat="${e.cat}">${e.nom} (${e.cat})</option>`).join('');
+  document.getElementById('sanDate').value = todayStr();
+  document.getElementById('sanType').value = 'vaccin';
+  document.getElementById('sanNbTraites').value = 0;
+  document.getElementById('sanProduit').value = '';
+  document.getElementById('sanDose').value = '';
+  document.getElementById('sanProchainRdv').value = '';
+  document.getElementById('sanNotes').value = '';
+  document.getElementById('sanEditId').value = '';
+  document.getElementById('sanitaireMdTitle').textContent = '➕ Nouvel acte sanitaire';
+  if (id) {
+    const rec = (DB.sanitaire||[]).find(s => s.id === id);
+    if (rec) {
+      document.getElementById('sanitaireMdTitle').textContent = '✏️ Modifier acte sanitaire';
+      document.getElementById('sanDate').value = rec.date || '';
+      document.getElementById('sanEspece').value = rec.especeId || '';
+      document.getElementById('sanType').value = rec.type || 'vaccin';
+      document.getElementById('sanNbTraites').value = rec.nbTraites || 0;
+      document.getElementById('sanProduit').value = rec.produit || '';
+      document.getElementById('sanDose').value = rec.dose || '';
+      document.getElementById('sanProchainRdv').value = rec.prochainRdv || '';
+      document.getElementById('sanNotes').value = rec.notes || '';
+      document.getElementById('sanEditId').value = id;
+    }
+  }
+  document.getElementById('modalSanitaire').classList.add('show');
+}
+
+function saveSanitaire() {
+  const date   = document.getElementById('sanDate').value;
+  const selEl  = document.getElementById('sanEspece');
+  const eId    = selEl.value;
+  const eOpt   = selEl.options[selEl.selectedIndex];
+  const type   = document.getElementById('sanType').value;
+  if (!date || !eId) { toast('⚠️ Date et espèce obligatoires', 'error'); return; }
+  const editId = document.getElementById('sanEditId').value;
+  const rec = {
+    id:        editId || 'san_' + Date.now(),
+    date,
+    especeId:  eId,
+    especeNom: eOpt ? eOpt.dataset.nom : eId,
+    especeCat: eOpt ? eOpt.dataset.cat : '',
+    type,
+    produit:     document.getElementById('sanProduit').value.trim(),
+    dose:        document.getElementById('sanDose').value.trim(),
+    nbTraites:   parseInt(document.getElementById('sanNbTraites').value) || 0,
+    prochainRdv: document.getElementById('sanProchainRdv').value || null,
+    notes:       document.getElementById('sanNotes').value.trim(),
+    agent:       currentUser.login,
+    agentNom:    currentUser.nom
+  };
+  if (!DB.sanitaire) DB.sanitaire = [];
+  if (editId) {
+    const idx = DB.sanitaire.findIndex(s => s.id === editId);
+    if (idx >= 0) DB.sanitaire[idx] = rec; else DB.sanitaire.push(rec);
+  } else {
+    DB.sanitaire.push(rec);
+  }
+  saveDB();
+  closeModal('modalSanitaire');
+  renderSante();
+  updateSanteBadge();
+  audit('SANITAIRE', `${SANTE_TYPES[type]||type} — ${rec.especeNom} le ${date}`);
+  toast(`✅ Acte sanitaire enregistré`, 'success');
+}
+
+function deleteSanitaire(id) {
+  if (!confirm('Supprimer cet acte sanitaire ?')) return;
+  DB.sanitaire = (DB.sanitaire||[]).filter(s => s.id !== id);
+  saveDB(); renderSante(); updateSanteBadge();
+  toast('Acte supprimé', 'success');
+}
+
+function switchSanteTab(btn, name) {
+  document.querySelectorAll('#page-sante .tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('sante-historique').style.display = name === 'historique' ? 'block' : 'none';
+  document.getElementById('sante-avenirs').style.display    = name === 'avenirs'    ? 'block' : 'none';
+  if (name === 'avenirs') renderSanteAvenirs();
+}
+
+function renderSanteAvenirs() {
+  const box   = document.getElementById('santeAvenirContent');
+  const today = todayStr();
+  const items = (DB.sanitaire||[]).filter(s => s.prochainRdv && s.prochainRdv >= today)
+                .sort((a, b) => a.prochainRdv.localeCompare(b.prochainRdv));
+  if (!items.length) { box.innerHTML = '<div class="empty"><div class="icon">📅</div><p>Aucun rendez-vous planifié</p></div>'; return; }
+  const soon = new Date(); soon.setDate(soon.getDate() + 7); const soonStr = soon.toISOString().slice(0, 10);
+  box.innerHTML = items.map(s => {
+    const urgent = s.prochainRdv <= soonStr;
+    const bg = urgent ? 'rgba(220,38,38,0.06)' : 'var(--bg-3)';
+    const border = urgent ? '1px solid rgba(220,38,38,0.25)' : '1px solid var(--border)';
+    return `<div style="background:${bg};border:${border};border-radius:10px;padding:12px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <strong>${SANTE_TYPES[s.type]||s.type}</strong> — ${s.especeNom}<br>
+          <span style="font-size:12px;color:var(--text-muted)">${s.produit||'—'}</span>
+        </div>
+        <div style="text-align:right;">
+          <span style="font-size:14px;font-weight:700;color:${urgent?'var(--danger)':'var(--primary)'}">${s.prochainRdv}</span><br>
+          <span style="font-size:11px;color:var(--text-muted)">${s.agentNom}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderSante() {
+  updateSanteBadge();
+  // Peupler le filtre espèce
+  const selFil = document.getElementById('santeFilterEspece');
+  if (selFil && selFil.options.length <= 1) {
+    const names = [...new Set((DB.sanitaire||[]).map(s => s.especeNom))];
+    selFil.innerHTML = '<option value="">Toutes espèces</option>' + names.map(n => `<option value="${n}">${n}</option>`).join('');
+  }
+  const filterType   = document.getElementById('santeFilterType')?.value   || '';
+  const filterEspece = document.getElementById('santeFilterEspece')?.value || '';
+  let items = [...(DB.sanitaire||[])];
+  if (filterType)   items = items.filter(s => s.type === filterType);
+  if (filterEspece) items = items.filter(s => s.especeNom === filterEspece);
+  items.sort((a, b) => b.date.localeCompare(a.date));
+
+  const tbody = document.getElementById('tbodySante');
+  if (!tbody) return;
+  if (!items.length) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text-muted)">Aucun acte sanitaire enregistré</td></tr>`;
+    return;
+  }
+  const today = todayStr();
+  tbody.innerHTML = items.map(s => {
+    const rdvColor = s.prochainRdv ? (s.prochainRdv < today ? 'var(--danger)' : (s.prochainRdv <= new Date(new Date().setDate(new Date().getDate()+7)).toISOString().slice(0,10) ? 'var(--warning)' : 'var(--success)')) : 'var(--text-muted)';
+    return `<tr>
+      <td>${s.date}</td>
+      <td><strong>${s.especeNom}</strong><br><span style="font-size:11px;color:var(--text-muted)">${s.especeCat}</span></td>
+      <td>${SANTE_TYPES[s.type]||s.type}</td>
+      <td>${s.produit||'—'}${s.dose?' / '+s.dose:''}</td>
+      <td style="text-align:center">${s.nbTraites||0}</td>
+      <td style="color:${rdvColor}">${s.prochainRdv||'—'}</td>
+      <td style="font-size:12px">${s.agentNom||s.agent||'—'}</td>
+      <td>
+        <button class="btn btn-sm btn-info" onclick="openSanitaireForm('${s.id}')" style="margin-bottom:2px">✏️</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteSanitaire('${s.id}')">🗑️</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
 // ========== GOOGLE SHEETS ==========
 function openGSheetsConfig() {
   const cfg = DB.gsheets || {};
@@ -4923,11 +5516,14 @@ let _fbPushToken = null;   // token de notre dernier push (détection écho)
 let _fbPushPending = false; // true = push local en attente (nos données sont + récentes)
 
 function initFirebase() {
-  // Utiliser la config intégrée en priorité, sinon celle sauvegardée manuellement
   const cfg = (DB.firebase && DB.firebase.databaseURL) ? DB.firebase : FIREBASE_CONFIG_DEFAULT;
   try {
     if (typeof firebase === 'undefined') return false;
     if (!firebase.apps.length) firebase.initializeApp(cfg);
+    // 🔒 Authentification anonyme — sécurise l'accès (règles Firebase : auth != null)
+    if (firebase.auth) {
+      firebase.auth().signInAnonymously().catch(e => console.warn('Auth anon:', e.message));
+    }
     _fbRef = firebase.database().ref('maxiagro');
     return true;
   } catch(e) { console.warn('Firebase init:', e.message); return false; }
@@ -4975,31 +5571,52 @@ function startRealtimeSync() {
       _fbInitialized = true;
       _fbConnected   = true;
 
-      const prevPending = (DB.demandes||[]).filter(d => d.statut === 'en_attente').length;
+      // Snapshot des demandes AVANT merge (pour détecter les changements)
+      const prevDemandes  = JSON.parse(JSON.stringify(DB.demandes || []));
+      const prevPending   = prevDemandes.filter(d => d.statut === 'en_attente').length;
 
-      const REMOTE_FIELDS = ['inventaires','factures','especes','aliments','demandes','clients','mouvements','audit','prixPersos'];
+      const REMOTE_FIELDS = ['inventaires','factures','especes','aliments','demandes','clients','mouvements','audit','prixPersos','sanitaire'];
       REMOTE_FIELDS.forEach(k => { if (remote[k] !== undefined) DB[k] = remote[k]; });
-      // Sync users : toujours prendre la version Firebase si elle existe (non vide)
       if (remote.users && remote.users.length) DB.users = remote.users;
       sanitizeDB();
       localStorage.setItem(DB_KEY, JSON.stringify(DB));
 
-      // Alertes nouvelles demandes
-      const newPending = (DB.demandes||[]).filter(d => d.statut === 'en_attente').length;
-      if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'controleur')) {
-        const diff = newPending - prevPending;
-        if (diff > 0) {
-          showInAppNotif('Nouvelle demande — MAXI-AGRO',
-            `${diff} demande${diff>1?'s':''} en attente d'approbation`);
-          toast(`🔔 ${diff} nouvelle${diff>1?'s':''} demande${diff>1?'s':''} !`, 'warning');
+      // ── NOTIFICATIONS INTELLIGENTES ──────────────────────────────────────
+      if (currentUser) {
+        const role = currentUser.role;
+        // Admin/contrôleur : alerte nouvelles demandes en attente
+        if (role === 'admin' || role === 'controleur') {
+          const newPending = (DB.demandes||[]).filter(d => d.statut === 'en_attente').length;
+          const diff = newPending - prevPending;
+          if (diff > 0) {
+            const msg = `${diff} nouvelle${diff>1?'s':''} demande${diff>1?'s':''} en attente`;
+            showInAppNotif('📋 MAXI-AGRO', msg);
+            sendBrowserNotif('📋 MAXI-AGRO — Demande', msg);
+            toast(`🔔 ${msg}`, 'warning');
+          }
         }
+        // Agent : alerte décision sur ses propres demandes
+        if (role === 'agent' || role === 'controleur') {
+          (DB.demandes||[]).forEach(rd => {
+            const old = prevDemandes.find(d => d.id === rd.id);
+            if (old && old.statut === 'en_attente' && rd.statut !== 'en_attente'
+                && rd.demandeur === currentUser.login) {
+              const icon = rd.statut === 'approuve' ? '✅' : '❌';
+              const msg  = `${icon} Demande ${rd.num} ${rd.statut === 'approuve' ? 'approuvée' : 'refusée'} : ${rd.qte} × ${rd.articleNom}`;
+              showInAppNotif('MAXI-AGRO', msg);
+              sendBrowserNotif('MAXI-AGRO', msg);
+              toast(msg, rd.statut === 'approuve' ? 'success' : 'error');
+            }
+          });
+        }
+        // Tous : alerte nouveaux actes sanitaires urgents (prochain RDV aujourd'hui)
+        updateSanteBadge();
       }
 
-      // Rafraîchir l'interface (sauf page saisie active pour ne pas vider le formulaire)
-      const active = document.querySelector('.page.active');
+      // Rafraîchir l'interface
+      const active  = document.querySelector('.page.active');
       const curPage = active ? active.id.replace('page-','') : '';
       if (curPage === 'saisie') {
-        // Avertir discrètement que de nouvelles données sont disponibles
         toast('⚡ Données synchronisées depuis un autre appareil', 'success');
       } else {
         refreshCurrentPage();
@@ -5044,7 +5661,7 @@ function _doFirebasePush() {
   _fbPushToken   = token;
   _fbPushPending = false;   // push en cours → protection levée
 
-  const SYNC_FIELDS = ['inventaires','factures','especes','aliments','demandes','clients','mouvements','audit','prixPersos','users'];
+  const SYNC_FIELDS = ['inventaires','factures','especes','aliments','demandes','clients','mouvements','audit','prixPersos','users','sanitaire'];
   const data = { _v: token }; // token embarqué pour détection écho
   SYNC_FIELDS.forEach(k => { if (DB[k] !== undefined) data[k] = DB[k]; });
 
@@ -5183,6 +5800,7 @@ function refreshCurrentPage() {
   else if (id === 'factures') renderFactures();
   else if (id === 'analyses') updateAnalyses();
   else if (id === 'demandes') renderDemandes();
+  else if (id === 'sante') renderSante();
 }
 
 function setSyncStatus(state, date) {
